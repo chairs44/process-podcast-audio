@@ -1,37 +1,53 @@
+<div align="center">
+
 # Process Podcast Audio
 
-A local-first batch utility for preparing finished podcast mixes for distribution.
+**A local-first finishing pass for podcast delivery.**
 
-Process Podcast Audio matches programme loudness, standardizes delivery settings,
-cleans up filenames, and exports MP3 files without modifying the originals.
-Use it as a final delivery pass after editing and mixing, while keeping your
-high-quality WAV masters intact.
+Match loudness. Check the encoded file. Keep your originals.
 
-## Agent skill
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=flat-square)](#requirements) [![FFmpeg](https://img.shields.io/badge/Audio-FFmpeg-487D43?style=flat-square)](#delivery-settings) [![MIT license](https://img.shields.io/badge/License-MIT-656565?style=flat-square)](LICENSE)
 
-This repository is also an installable agent skill for compatible coding agents.
+[Quick start](#quick-start) · [Raycast](#raycast-on-macos) · [Agent skill](#agent-skill) · [Changelog](CHANGELOG.md)
 
-```bash
-npx skills add chairs44/process-podcast-audio --skill process-podcast-audio
-```
+</div>
 
-The skill provides delivery settings, safety guardrails and a QC workflow.
-The command-line utility works independently.
+---
 
-## What it does
+Prepare finished mixes for distribution with measured loudness normalization,
+consistent MP3 exports and per-file quality checks. Run it from Terminal,
+Raycast or a compatible coding agent. No accounts, uploads or API keys.
+
+> [!IMPORTANT]
+> A delivery tool, not automatic mastering. Finish your edit and mix first,
+> keep the lossless master, and listen to the export before publishing.
+
+## At a glance
 
 - Accepts individual files, multiple files, or folders recursively.
 - Reads WAV, AIFF, FLAC, MP3, M4A, AAC and OGG.
-- Uses measured two-pass FFmpeg loudness normalization.
-- Targets −16 LUFS integrated with ±1 LU acceptance.
-- Begins with −2 dBTP processing headroom and verifies encoded MP3 true peak ≤−1 dBTP.
-- Exports 44.1 kHz stereo MP3 at 128 kbps CBR.
-- Converts output names to lowercase kebab-case.
-- Writes optional CSV and JSON QC reports.
-- Never renames, moves or overwrites source files.
-- Strips source metadata, artwork and chapters to avoid carrying private editing history into exports.
+- Shows stage progress, elapsed time and estimated stage time remaining.
+- Produces lowercase kebab-case filenames and optional CSV/JSON reports.
+- Preserves originals and refuses to overwrite existing outputs.
 
-## Command-line requirements
+## Delivery settings
+
+| Setting | Default |
+| :--- | :--- |
+| Format | MP3 · 44.1 kHz · stereo · 128 kbps CBR |
+| Integrated loudness | −16 LUFS target · ±1 LU acceptance |
+| Processing headroom | Starts at −2 dBTP |
+| Encoded true peak | Must be ≤−1 dBTP |
+| Verification | Full-file loudness, peaks, format and duration |
+| Metadata | Source tags, artwork and chapters removed |
+
+**Measure → Normalize & encode → Verify → Save**
+
+Only exports that pass the numerical checks are saved as deliverables.
+
+## Quick start
+
+### Requirements
 
 - macOS or Linux
 - Python 3.9 or newer, Bash
@@ -45,14 +61,17 @@ On macOS with Homebrew:
 brew install python ffmpeg
 ```
 
-On Ubuntu or Debian:
+<details>
+<summary>Ubuntu / Debian installation</summary>
 
 ```bash
 sudo apt-get update
 sudo apt-get install python3 ffmpeg
 ```
 
-## Install
+</details>
+
+### Install
 
 ```bash
 git clone https://github.com/chairs44/process-podcast-audio.git
@@ -60,13 +79,14 @@ cd process-podcast-audio
 chmod +x process-podcast-audio.sh raycast/process-podcast-audio.sh
 ```
 
-## Use
-
-Process a finished mix:
+### Process a finished mix
 
 ```bash
 ./process-podcast-audio.sh --output "./podcast-exports" "./finished-mix.wav"
 ```
+
+<details>
+<summary>More examples: multiple files and folders</summary>
 
 Process several files:
 
@@ -79,6 +99,8 @@ Process a folder recursively:
 ```bash
 ./process-podcast-audio.sh --output "./podcast-exports" "./finished-mixes"
 ```
+
+</details>
 
 Choose an output directory outside input folders. Existing outputs are never
 overwritten. Output files with colliding kebab-case names are refused.
@@ -108,7 +130,7 @@ FFmpeg uses linear gain where feasible, otherwise dynamic normalization/limiting
 The tool does not force a narrow loudness range. Failed encoded checks trigger
 up to two further renders with more peak headroom, always from the original.
 
-## Optional: Raycast on macOS
+## Raycast on macOS
 
 1. Clone the repository and keep its folders together.
 2. In Raycast, search **Add Script Directory** and select the `raycast` folder.
@@ -125,6 +147,18 @@ Raycast uses successive text lines rather than an in-place graphical progress ba
 At completion, a macOS notification is requested and a separate dialog offers
 **Reveal in Finder**. Notification delivery depends on system permissions.
 The dialog dismisses itself after 60 seconds.
+
+<details>
+<summary>Example progress output (illustrative)</summary>
+
+```text
+File 1/3: episode-one.wav
+  2/3 Encoding (attempt 1) [############........] 60% | elapsed 2m 00s | ~1m 20s remaining
+```
+
+The percentage and estimate apply to the current stage, not the whole batch.
+
+</details>
 
 ## Scope
 
@@ -173,23 +207,40 @@ the audio itself. Console output and reports contain filenames/local paths;
 JSON includes hashes. Review them before sharing. No recordings or private
 production reports are included in this repository.
 
+## Agent skill
+
+Install the included workflow for compatible coding agents:
+
+```bash
+npx skills add chairs44/process-podcast-audio --skill process-podcast-audio
+```
+
+The [skill](SKILL.md) defines delivery settings, source-preservation guardrails
+and the QC workflow. The command-line tool works independently.
+
 ## Development
 
 ```bash
 python3 -m unittest discover -s tests -v
-bash -n process-podcast-audio.sh raycast/process-podcast-audio.sh
+bash -n process-podcast-audio.sh
+bash -n raycast/process-podcast-audio.sh
 ```
 
 Tests generate temporary audio rather than bundling recordings. The canonical
 implementation lives in `scripts/`, shared by Terminal, Raycast and the skill.
 macOS is locally tested; Linux uses the same CLI but is not claimed as fully verified.
 
-## About
+| File | Purpose |
+| :--- | :--- |
+| [`scripts/process_podcast_audio.py`](scripts/process_podcast_audio.py) | Shared processing engine |
+| [`process-podcast-audio.sh`](process-podcast-audio.sh) | Terminal entrypoint |
+| [`raycast/`](raycast/) | macOS Script Command |
+| [`SKILL.md`](SKILL.md) | Agent instructions |
+| [`tests/`](tests/) | Tests using temporary synthetic audio |
 
-Built by [David Sutrin](https://www.davidsutrin.xyz).
+---
 
-Related: [Process Web Audio](https://github.com/chairs44/process-web-audio).
+Built by [David Sutrin](https://www.davidsutrin.xyz) · [MIT license](LICENSE)
 
-## License
-
-[MIT](LICENSE)
+Also available: [Process Web Audio](https://github.com/chairs44/process-web-audio),
+for browser-ready audio delivery.
