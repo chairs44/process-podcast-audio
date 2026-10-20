@@ -118,6 +118,14 @@ No Finder selection is required. Cancel either dialog to stop without processing
 Keep the command running until it finishes. Folder batches and `--no-report`
 are available through the command-line interface.
 
+Progress is printed approximately every ten seconds for measuring, encoding and
+verification, with elapsed time and an estimated time remaining for that stage.
+Estimates exclude later stages and retries; they are not a guaranteed finish time.
+Raycast uses successive text lines rather than an in-place graphical progress bar.
+At completion, a macOS notification is requested and a separate dialog offers
+**Reveal in Finder**. Notification delivery depends on system permissions.
+The dialog dismisses itself after 60 seconds.
+
 ## Scope
 
 This is a delivery utility, not a complete mastering system. It does not perform
@@ -131,6 +139,27 @@ are rejected. Silent or shorter-than-three-second files require manual review.
 Listen to the full export, especially loud transitions, quiet speech and endings.
 Numerical QC does not certify sound quality or repair existing clipping.
 Add approved episode metadata/artwork separately before publishing.
+
+Normalization may turn an already loud mix down. Passing QC means the file
+meets the stated delivery checks, not that it sounds clearer or better than the
+original. Waveform height alone is not a measure of perceived loudness.
+Compare references at matched playback loudness before making tonal or dynamics
+decisions. Dynamic normalization can change the level over time; check the
+reported mode and audition the result.
+
+### Known limitations and next steps
+
+- If another process creates the destination file during processing, the final
+  save refuses to overwrite it. That input is reported as failed and its temporary
+  candidate is removed, even if audio QC passed. Use a separate output folder
+  for each concurrent run. Retaining a validated candidate after a late filename
+  collision is a planned improvement, not implemented behavior.
+- A more transparent fixed-gain-first delivery path with only necessary peak
+  control is under consideration. The current version still uses FFmpeg's
+  conditional linear/dynamic `loudnorm` behavior and the same acceptance limits.
+- Music/SFX preparation, reference-matched mastering, transcription, chapters
+  and a standalone app are not implemented. Raw assets should not automatically
+  receive the complete-episode loudness target.
 
 The defaults follow [Apple Podcasts audio recommendations](https://podcasters.apple.com/support/893-audio-requirements),
 not a universal rule for all destinations. See [FFmpeg loudnorm documentation](https://ffmpeg.org/ffmpeg-filters.html#loudnorm)

@@ -15,6 +15,7 @@ export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PA
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROCESSOR="$SCRIPT_DIR/../scripts/process_podcast_audio.py"
+[[ -f "$SCRIPT_DIR/process_podcast_audio.py" ]] && PROCESSOR="$SCRIPT_DIR/process_podcast_audio.py"
 
 if [[ ! -f "$PROCESSOR" ]]; then
   echo "Missing processor: $PROCESSOR"
@@ -66,4 +67,24 @@ echo "Podcast export: 44.1 kHz stereo MP3, 128 kbps, target -16 LUFS."
 echo "Destination: $destination"
 echo "Full episodes take several minutes. Keep this command running."
 echo
-exec python3 "$PROCESSOR" "${inputs[@]}" --output "$destination"
+status=0
+python3 "$PROCESSOR" "${inputs[@]}" --output "$destination" || status=$?
+if [[ "$status" -eq 0 ]]; then
+  message="Audio processing complete. All files passed numerical QC."
+else
+  message="Processing ended with errors. Review the command output and reports."
+fi
+# Notification delivery depends on macOS permissions. A separate completion
+# dialog provides the Finder action; Script Commands cannot add notification buttons.
+osascript - "$destination" "$message" <<'APPLESCRIPT' || true
+on run argv
+    set destinationPath to item 1 of argv
+    set resultMessage to item 2 of argv
+    display notification resultMessage with title "Process Podcast Audio"
+    set answer to display dialog resultMessage buttons {"Done", "Reveal in Finder"} default button "Done" with title "Process Podcast Audio" giving up after 60
+    if not gave up of answer and button returned of answer is "Reveal in Finder" then
+        do shell script "/usr/bin/open " & quoted form of destinationPath
+    end if
+end run
+APPLESCRIPT
+exit "$status"

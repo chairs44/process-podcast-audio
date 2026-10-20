@@ -11,16 +11,71 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import unicodedata
 
 EXTENSIONS = {".wav", ".aif", ".aiff", ".flac", ".mp3", ".m4a", ".aac", ".ogg"}
 
 
-def run(args):
+def run(args, duration=None, stage=None):
+    if duration is not None:
+        return run_progress(args, duration, stage)
     p = subprocess.run(args, capture_output=True, text=True)
     if p.returncode:
         raise ValueError(p.stderr[-2500:])
     return p.stdout, p.stderr
+
+
+def clock_text(seconds):
+    seconds = max(0, int(seconds))
+    return f"{seconds // 60}m {seconds % 60:02d}s"
+
+
+def run_progress(args, duration, stage):
+    """Read FFmpeg progress separately from its measurement/error log."""
+    started = time.monotonic()
+    last_print = -10
+    position = 0.0
+    print(f"  {stage} | 0% | estimating stage time...", flush=True)
+    with tempfile.TemporaryFile(mode="w+t") as log:
+        command = [args[0], "-nostats", "-progress", "pipe:1", *args[1:]]
+        with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=log, text=True) as p:
+            try:
+                for line in p.stdout:
+                    key, _, value = line.strip().partition("=")
+                    if key == "out_time_us":
+                        try:
+                            position = max(position, float(value) / 1_000_000)
+                        except ValueError:
+                            pass
+                    if key != "progress":
+                        continue
+                    elapsed = time.monotonic() - started
+                    if elapsed - last_print < 10:
+                        continue
+                    fraction = min(0.99, max(0, position / duration))
+                    percent = int(fraction * 100)
+                    filled = percent // 5
+                    eta = (f"~{clock_text(elapsed * (1 - fraction) / fraction)} remaining"
+                           if fraction > 0.01 and elapsed >= 3 else "estimating")
+                    print(f"  {stage} [{'#' * filled}{'.' * (20 - filled)}] "
+                          f"{percent}% | elapsed {clock_text(elapsed)} | {eta}", flush=True)
+                    last_print = elapsed
+                code = p.wait()
+            except BaseException:
+                p.terminate()
+                try:
+                    p.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    p.kill()
+                    p.wait()
+                raise
+        log.seek(0)
+        stderr = log.read()
+    if code:
+        raise ValueError(stderr[-2500:])
+    print(f"  {stage} | 100% | elapsed {clock_text(time.monotonic() - started)}", flush=True)
+    return "", stderr
 
 
 def probe(path):
@@ -35,12 +90,12 @@ def audio(info):
     return streams[0]
 
 
-def measure(path):
+def measure(path, duration=None, stage=None):
     # Duplicate mono explicitly so measurement matches the stereo deliverable.
     prefix = "aformat=channel_layouts=stereo,"
     _, log = run(["ffmpeg", "-hide_banner", "-nostdin", "-v", "info", "-i", str(path),
                   "-map", "0:a:0", "-af", prefix + "loudnorm=I=-16:TP=-2:LRA=50:print_format=json",
-                  "-f", "null", "-"])
+                  "-f", "null", "-"], duration, stage)
     matches = re.findall(r'\{\s*"input_i".*?\}', log, re.S)
     if not matches:
         raise ValueError("Missing loudness measurement.")
@@ -74,7 +129,7 @@ def process(source, destination):
     if duration < 3:
         raise ValueError("Files shorter than 3 seconds require manual loudness review.")
     print("  Measuring complete source...", flush=True)
-    measured = measure(source)
+    measured = measure(source, duration, "1/3 Measuring")
     history = []
     with tempfile.TemporaryDirectory(prefix=".podcast-", dir=destination.parent) as temp:
         candidate = Path(temp) / "candidate.mp3"
@@ -94,9 +149,10 @@ def process(source, destination):
                           "-map", "0:a:0", "-map_metadata", "-1", "-map_chapters", "-1",
                           "-af", filt, "-ar", "44100", "-ac", "2",
                           "-c:a", "libmp3lame", "-b:a", "128k",
-                          "-id3v2_version", "3", str(candidate)])
+                          "-id3v2_version", "3", str(candidate)],
+                         duration, f"2/3 Encoding (attempt {attempt + 1})")
             render = json.loads(re.findall(r'\{\s*"input_i".*?\}', log, re.S)[-1])
-            final = measure(candidate)
+            final = measure(candidate, duration, f"3/3 Verifying (attempt {attempt + 1})")
             output_info = probe(candidate)
             stream = audio(output_info)
             valid_format = (stream["codec_name"] == "mp3"
@@ -157,8 +213,9 @@ def main():
         parser.error("Output already exists. Choose a different destination; files are never overwritten.")
     output.mkdir(parents=True, exist_ok=True)
     records = []
-    for source, target in zip(sorted(sources), targets):
-        print(f"Processing: {source.name}", flush=True)
+    started = time.monotonic()
+    for index, (source, target) in enumerate(zip(sorted(sources), targets), 1):
+        print(f"File {index}/{len(sources)}: {source.name}", flush=True)
         try:
             record = process(source, target)
             last = record["attempts"][-1]
@@ -179,7 +236,10 @@ def main():
                 writer.writerow([r["source"], r["status"], r.get("output"), last.get("lufs"),
                                  last.get("true_peak"), last.get("mode"), r.get("error")])
         print(f"Reports: {report_dir}", flush=True)
-    return 0 if all(r["status"] == "passed" for r in records) else 1
+    passed = sum(r["status"] == "passed" for r in records)
+    print(f"Finished: {passed} passed, {len(records) - passed} failed. "
+          f"Total elapsed: {clock_text(time.monotonic() - started)}", flush=True)
+    return 0 if passed == len(records) else 1
 
 
 if __name__ == "__main__":
